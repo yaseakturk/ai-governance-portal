@@ -3,6 +3,8 @@
 
 export type CostTier = "economy" | "standard" | "premium"
 
+export type ExecutionMode = "mock" | "gateway"
+
 export type ModelInfo = {
   id: string
   name: string
@@ -36,25 +38,15 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     latency: "low",
     strengths: "Low-latency drafting with strong safety guardrails",
   },
-  "openai/gpt-5-mini": {
-    id: "openai/gpt-5-mini",
-    name: "GPT-5 mini",
+  "openai/gpt-4o": {
+    id: "openai/gpt-4o",
+    name: "GPT-4o",
     provider: "OpenAI",
-    contextWindow: "256K",
-    inputPrice: 0.25,
-    outputPrice: 2.0,
+    contextWindow: "128K",
+    inputPrice: 2.5,
+    outputPrice: 10.0,
     latency: "medium",
-    strengths: "Balanced reasoning and cost for general workloads",
-  },
-  "google/gemini-3-flash": {
-    id: "google/gemini-3-flash",
-    name: "Gemini 3 Flash",
-    provider: "Google",
-    contextWindow: "1M",
-    inputPrice: 0.3,
-    outputPrice: 2.5,
-    latency: "low",
-    strengths: "Massive context for long-document extraction",
+    strengths: "Balanced multimodal reasoning with broad tooling support",
   },
   "anthropic/claude-sonnet-4.5": {
     id: "anthropic/claude-sonnet-4.5",
@@ -64,27 +56,7 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
     inputPrice: 3.0,
     outputPrice: 15.0,
     latency: "medium",
-    strengths: "High-quality code generation and structured reasoning",
-  },
-  "openai/gpt-5.2": {
-    id: "openai/gpt-5.2",
-    name: "GPT-5.2",
-    provider: "OpenAI",
-    contextWindow: "400K",
-    inputPrice: 5.0,
-    outputPrice: 20.0,
-    latency: "high",
-    strengths: "Frontier reasoning for complex analysis",
-  },
-  "anthropic/claude-opus-4.5": {
-    id: "anthropic/claude-opus-4.5",
-    name: "Claude Opus 4.5",
-    provider: "Anthropic",
-    contextWindow: "200K",
-    inputPrice: 7.5,
-    outputPrice: 30.0,
-    latency: "high",
-    strengths: "Highest-accuracy reasoning for regulated workloads",
+    strengths: "High-quality code generation and structured legal reasoning",
   },
 }
 
@@ -96,56 +68,85 @@ export type Application = {
   team: string
   description: string
   sensitivity: Sensitivity
+  region: string
+  executionMode: ExecutionMode
+  // Explicit, platform-approved routing for this application.
+  primaryModelId: string
+  fallbackModelId: string
+  routingReason: string
   // Provider allowlist enforced for this application's data class.
   allowedProviders: ModelInfo["provider"][]
-  region: string
 }
 
 export const APPLICATIONS: Application[] = [
   {
-    id: "support-copilot",
-    name: "Customer Support Copilot",
+    id: "support-assistant",
+    name: "Support Assistant",
     team: "Global Support",
-    description: "Agent-assist for live customer conversations",
+    description: "Agent-assist and ticket summarization for live support",
     sensitivity: "confidential",
-    allowedProviders: ["OpenAI", "Anthropic"],
     region: "us-east / eu-west",
+    executionMode: "mock",
+    primaryModelId: "openai/gpt-4o-mini",
+    fallbackModelId: "anthropic/claude-haiku-4.5",
+    routingReason:
+      "High-volume ticket summarization is served from a cost-optimized demo profile.",
+    allowedProviders: ["OpenAI", "Anthropic"],
   },
   {
-    id: "code-assistant",
-    name: "Engineering Code Assistant",
-    team: "Developer Platform",
-    description: "In-IDE code generation and review",
-    sensitivity: "internal",
-    allowedProviders: ["OpenAI", "Anthropic", "Google"],
-    region: "us-east",
-  },
-  {
-    id: "sales-intel",
-    name: "Sales Intelligence",
-    team: "Revenue Operations",
-    description: "Account research and outreach drafting",
-    sensitivity: "internal",
-    allowedProviders: ["OpenAI", "Anthropic", "Google"],
-    region: "us-east",
-  },
-  {
-    id: "hr-helpdesk",
-    name: "HR Helpdesk",
+    id: "hr-assistant",
+    name: "HR Assistant",
     team: "People Operations",
-    description: "Employee policy and benefits assistant",
+    description: "Onboarding, handbook, and benefits knowledge assistant",
     sensitivity: "confidential",
-    allowedProviders: ["Anthropic", "OpenAI"],
     region: "us-east",
+    executionMode: "mock",
+    primaryModelId: "anthropic/claude-haiku-4.5",
+    fallbackModelId: "openai/gpt-4o-mini",
+    routingReason:
+      "Employee-facing handbook summaries are served from a safety-tuned demo profile.",
+    allowedProviders: ["Anthropic", "OpenAI"],
+  },
+  {
+    id: "legal-assistant",
+    name: "Legal Assistant",
+    team: "Corporate Legal",
+    description: "Contract review and legal risk assessment",
+    sensitivity: "restricted",
+    region: "us-east (SOC 2 / in-region only)",
+    executionMode: "gateway",
+    primaryModelId: "anthropic/claude-sonnet-4.5",
+    fallbackModelId: "openai/gpt-4o",
+    routingReason: "Long-context legal analysis and contract risk assessment.",
+    allowedProviders: ["Anthropic", "OpenAI"],
   },
   {
     id: "finance-analytics",
     name: "Finance Analytics",
     team: "Corporate Finance",
-    description: "Earnings and risk narrative analysis",
+    description: "Earnings, forecasting, and risk narrative analysis",
     sensitivity: "restricted",
-    allowedProviders: ["Anthropic"],
     region: "us-east (SOC 2 / in-region only)",
+    executionMode: "gateway",
+    primaryModelId: "openai/gpt-4o",
+    fallbackModelId: "anthropic/claude-sonnet-4.5",
+    routingReason:
+      "Financial analysis requires balanced reasoning and cost efficiency.",
+    allowedProviders: ["OpenAI", "Anthropic"],
+  },
+  {
+    id: "code-assistant",
+    name: "Code Assistant",
+    team: "Developer Platform",
+    description: "Architecture review and in-IDE code analysis",
+    sensitivity: "internal",
+    region: "us-east",
+    executionMode: "gateway",
+    primaryModelId: "anthropic/claude-sonnet-4.5",
+    fallbackModelId: "openai/gpt-4o",
+    routingReason:
+      "Architecture review and code analysis require advanced reasoning.",
+    allowedProviders: ["Anthropic", "OpenAI"],
   },
 ]
 
@@ -196,9 +197,11 @@ export const TASK_TYPES: TaskType[] = [
 ]
 
 export type GovernanceDecision = {
+  executionMode: ExecutionMode
   selectedModelId: string
   fallbackModelId: string
   costTier: CostTier
+  routingReason: string
   rationale: string[]
   policies: { label: string; status: "enforced" | "info"; detail: string }[]
 }
@@ -230,30 +233,6 @@ export const COST_TIER_META: Record<
   },
 }
 
-function pickForTier(
-  tier: CostTier,
-  allowed: ModelInfo["provider"][],
-): string[] {
-  // Candidate models per tier, in preference order.
-  const tiers: Record<CostTier, string[]> = {
-    economy: ["openai/gpt-4o-mini", "anthropic/claude-haiku-4.5", "google/gemini-3-flash"],
-    standard: ["openai/gpt-5-mini", "google/gemini-3-flash", "anthropic/claude-sonnet-4.5"],
-    premium: ["anthropic/claude-opus-4.5", "openai/gpt-5.2", "anthropic/claude-sonnet-4.5"],
-  }
-  const filtered = tiers[tier].filter((id) =>
-    allowed.includes(MODEL_REGISTRY[id].provider),
-  )
-  // Always guarantee at least two candidates for primary + fallback.
-  if (filtered.length < 2) {
-    for (const id of Object.keys(MODEL_REGISTRY)) {
-      if (allowed.includes(MODEL_REGISTRY[id].provider) && !filtered.includes(id)) {
-        filtered.push(id)
-      }
-    }
-  }
-  return filtered
-}
-
 export function getGovernanceDecision(
   appId: string,
   taskId: string,
@@ -263,30 +242,20 @@ export function getGovernanceDecision(
 
   let tier = TIER_BY_COMPLEXITY[task.complexity]
 
-  // Restricted data classes are upgraded to premium for accuracy + audit.
+  // Restricted data classes are upgraded for accuracy + audit.
   if (app.sensitivity === "restricted" && tier === "economy") {
     tier = "standard"
   }
 
-  const candidates = pickForTier(tier, app.allowedProviders)
-  const selectedModelId = candidates[0]
-  // Prefer a fallback from a different provider for resilience.
-  const fallbackModelId =
-    candidates.find(
-      (id) =>
-        MODEL_REGISTRY[id].provider !==
-        MODEL_REGISTRY[selectedModelId].provider,
-    ) ??
-    candidates[1] ??
-    candidates[0]
-
+  const selectedModelId = app.primaryModelId
+  const fallbackModelId = app.fallbackModelId
   const selected = MODEL_REGISTRY[selectedModelId]
   const fallback = MODEL_REGISTRY[fallbackModelId]
 
   const rationale: string[] = [
+    app.routingReason,
     `Task "${task.name}" is rated ${task.complexity} complexity → ${COST_TIER_META[tier].label} cost tier.`,
-    `${selected.name} (${selected.provider}) selected: ${selected.strengths.toLowerCase()}.`,
-    `${fallback.name} (${fallback.provider}) set as cross-provider fallback for resilience.`,
+    `${selected.name} (${selected.provider}) primary; ${fallback.name} (${fallback.provider}) cross-provider fallback for resilience.`,
   ]
 
   const policies: GovernanceDecision["policies"] = [
@@ -320,5 +289,88 @@ export function getGovernanceDecision(
     })
   }
 
-  return { selectedModelId, fallbackModelId, costTier: tier, rationale, policies }
+  return {
+    executionMode: app.executionMode,
+    selectedModelId,
+    fallbackModelId,
+    costTier: tier,
+    routingReason: app.routingReason,
+    rationale,
+    policies,
+  }
+}
+
+// Deterministic, realistic mock output for demo-only applications.
+// These applications never call a model — output is generated locally so the
+// governance flow can be demonstrated without provider credentials.
+export function getMockResponse(
+  appId: string,
+  taskId: string,
+  prompt: string,
+): string {
+  const task = TASK_TYPES.find((t) => t.id === taskId)?.name ?? "Request"
+  const excerpt = prompt.trim().slice(0, 120)
+  const ref = `${appId.slice(0, 3).toUpperCase()}-${Math.floor(
+    1000 + (hashString(prompt) % 9000),
+  )}`
+
+  if (appId === "support-assistant") {
+    return [
+      `Ticket Summary — ${ref}`,
+      ``,
+      `Category: ${task}`,
+      `Priority: High`,
+      `Sentiment: Frustrated, but cooperative`,
+      ``,
+      `Summary:`,
+      `Customer reports an issue regarding "${excerpt}${
+        prompt.length > 120 ? "…" : ""
+      }". The account is in good standing and the customer has contacted support twice on this topic.`,
+      ``,
+      `Recommended next steps:`,
+      `1. Acknowledge the delay and confirm the affected order/account.`,
+      `2. Escalate to Tier 2 billing for a status check within SLA (4 hours).`,
+      `3. Offer a goodwill credit per the retention policy if unresolved in 24h.`,
+      ``,
+      `Suggested reply tone: Empathetic, solution-oriented, no commitments beyond policy.`,
+    ].join("\n")
+  }
+
+  if (appId === "hr-assistant") {
+    return [
+      `HR Knowledge Summary — ${ref}`,
+      ``,
+      `Topic: ${task}`,
+      `Source: Employee Handbook v4.2 · Benefits Guide 2025`,
+      ``,
+      `Answer:`,
+      `Regarding "${excerpt}${
+        prompt.length > 120 ? "…" : ""
+      }", here is the relevant guidance:`,
+      ``,
+      `• New hires complete onboarding (I-9, payroll, benefits enrollment) within the first 5 business days.`,
+      `• Benefits elections must be finalized within 30 days of the start date; coverage is effective the 1st of the following month.`,
+      `• PTO accrues at 1.5 days/month and is available after the 90-day introductory period.`,
+      ``,
+      `For policy exceptions, route to your HR Business Partner. This summary is informational and does not override official plan documents.`,
+    ].join("\n")
+  }
+
+  return [
+    `Summary — ${ref}`,
+    ``,
+    `Task: ${task}`,
+    `Input: "${excerpt}${prompt.length > 120 ? "…" : ""}"`,
+    ``,
+    `This is a demonstration response generated locally for a Mock Demo application.`,
+  ].join("\n")
+}
+
+function hashString(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (h << 5) - h + s.charCodeAt(i)
+    h |= 0
+  }
+  return Math.abs(h)
 }

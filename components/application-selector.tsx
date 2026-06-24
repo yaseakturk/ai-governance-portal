@@ -1,6 +1,6 @@
 "use client"
 
-import { Boxes } from "lucide-react"
+import { Boxes, FlaskConical, Cloud } from "lucide-react"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -51,14 +51,31 @@ export function ApplicationSelector({
         </SelectContent>
       </Select>
       {app && (
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Badge
-            variant="outline"
-            className={`capitalize ${SENSITIVITY_STYLES[app.sensitivity]}`}
-          >
-            {app.sensitivity}
-          </Badge>
-          <span className="text-xs text-muted-foreground">{app.description}</span>
+        <div className="space-y-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className={
+                app.executionMode === "gateway"
+                  ? "gap-1 border-primary/30 bg-primary/10 text-primary"
+                  : "gap-1 border-border bg-muted text-muted-foreground"
+              }
+            >
+              {app.executionMode === "gateway" ? (
+                <Cloud className="h-3 w-3" />
+              ) : (
+                <FlaskConical className="h-3 w-3" />
+              )}
+              {app.executionMode === "gateway" ? "AI Gateway" : "Mock Demo"}
+            </Badge>
+            <Badge
+              variant="outline"
+              className={`capitalize ${SENSITIVITY_STYLES[app.sensitivity]}`}
+            >
+              {app.sensitivity}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">{app.description}</p>
         </div>
       )}
     </div>

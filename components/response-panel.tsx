@@ -6,14 +6,21 @@ import {
   AlertTriangle,
   GitBranch,
   Terminal,
+  ShieldCheck,
+  FlaskConical,
+  Cloud,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import type { ExecutionMode } from "@/lib/governance"
 
 export type ResponseState = {
-  text: string
+  text?: string
   usedModelName: string
   usedFallback: boolean
+  executionMode: ExecutionMode
+  gatewayInactive?: boolean
+  notice?: string
 } | null
 
 export function ResponsePanel({
@@ -34,6 +41,17 @@ export function ResponsePanel({
         </CardTitle>
         {response && (
           <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className="gap-1 border-border text-muted-foreground"
+            >
+              {response.executionMode === "mock" ? (
+                <FlaskConical className="h-3 w-3" />
+              ) : (
+                <Cloud className="h-3 w-3" />
+              )}
+              {response.executionMode === "mock" ? "Mock Demo" : "AI Gateway"}
+            </Badge>
             {response.usedFallback && (
               <Badge
                 variant="outline"
@@ -43,7 +61,9 @@ export function ResponsePanel({
                 Failover
               </Badge>
             )}
-            <Badge variant="secondary">{response.usedModelName}</Badge>
+            {!response.gatewayInactive && (
+              <Badge variant="secondary">{response.usedModelName}</Badge>
+            )}
           </div>
         )}
       </CardHeader>
@@ -51,7 +71,7 @@ export function ResponsePanel({
         {loading && (
           <div className="flex h-full min-h-48 flex-col items-center justify-center gap-3 text-muted-foreground">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            <p className="text-sm">Routing through the governed gateway…</p>
+            <p className="text-sm">Routing through the governance layer…</p>
           </div>
         )}
 
@@ -59,6 +79,20 @@ export function ResponsePanel({
           <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>{error}</p>
+          </div>
+        )}
+
+        {!loading && !error && response?.gatewayInactive && (
+          <div className="flex items-start gap-3 rounded-md border border-primary/30 bg-primary/5 p-4">
+            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                AI Gateway integration configured
+              </p>
+              <p className="text-sm leading-relaxed text-muted-foreground">
+                {response.notice}
+              </p>
+            </div>
           </div>
         )}
 
@@ -74,7 +108,7 @@ export function ResponsePanel({
           </div>
         )}
 
-        {!loading && !error && response && (
+        {!loading && !error && response && !response.gatewayInactive && (
           <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {response.text}
           </div>

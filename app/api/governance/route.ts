@@ -2,11 +2,15 @@ import { generateText } from "ai"
 import {
   APPLICATIONS,
   getGovernanceDecision,
+  getMockResponse,
   MODEL_REGISTRY,
   TASK_TYPES,
 } from "@/lib/governance"
 
 export const maxDuration = 30
+
+const GATEWAY_NOTICE =
+  "AI Gateway integration is configured but not active in this demo environment. Routing, governance, fallback selection, and policy enforcement are still demonstrated."
 
 export async function POST(req: Request) {
   try {
@@ -27,6 +31,19 @@ export async function POST(req: Request) {
 
     const decision = getGovernanceDecision(appId, taskId)
     const selected = MODEL_REGISTRY[decision.selectedModelId]
+
+    // Mock Demo applications never call a model — output is generated locally.
+    if (decision.executionMode === "mock") {
+      return Response.json({
+        text: getMockResponse(appId, taskId, prompt),
+        executionMode: "mock",
+        usedModelId: decision.selectedModelId,
+        usedModelName: selected.name,
+        usedFallback: false,
+        costTier: decision.costTier,
+        selectedModelName: selected.name,
+      })
+    }
 
     const system = [
       `You are the AI assistant powering "${app.name}" for the ${app.team} team.`,
@@ -49,18 +66,36 @@ export async function POST(req: Request) {
     } catch (primaryError) {
       // Governance policy: fail over to the approved fallback model.
       console.log("[v0] Primary model failed, failing over:", primaryError)
-      usedFallback = true
-      usedModelId = decision.fallbackModelId
-      const result = await generateText({
-        model: decision.fallbackModelId,
-        system,
-        prompt,
-      })
-      text = result.text
+      try {
+        usedFallback = true
+        usedModelId = decision.fallbackModelId
+        const result = await generateText({
+          model: decision.fallbackModelId,
+          system,
+          prompt,
+        })
+        text = result.text
+      } catch (fallbackError) {
+        // Both routes unavailable (e.g. no Gateway billing in this demo).
+        // Surface a professional notice rather than a raw error so the
+        // governance flow can still be demonstrated end-to-end.
+        console.log("[v0] Fallback model failed:", fallbackError)
+        return Response.json({
+          executionMode: "gateway",
+          gatewayInactive: true,
+          notice: GATEWAY_NOTICE,
+          usedModelId: decision.selectedModelId,
+          usedModelName: selected.name,
+          usedFallback: false,
+          costTier: decision.costTier,
+          selectedModelName: selected.name,
+        })
+      }
     }
 
     return Response.json({
       text,
+      executionMode: "gateway",
       usedModelId,
       usedModelName: MODEL_REGISTRY[usedModelId].name,
       usedFallback,

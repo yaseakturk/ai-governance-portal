@@ -17,6 +17,7 @@ import { PromptInput } from "@/components/prompt-input"
 import { ModelCard } from "@/components/model-card"
 import { CostTierIndicator } from "@/components/cost-tier-indicator"
 import { GovernancePanel } from "@/components/governance-panel"
+import { ArchitectureOverview } from "@/components/architecture-overview"
 import { ResponsePanel, type ResponseState } from "@/components/response-panel"
 
 export function GovernancePortal() {
@@ -53,6 +54,9 @@ export function GovernancePortal() {
           text: data.text,
           usedModelName: data.usedModelName,
           usedFallback: data.usedFallback,
+          executionMode: data.executionMode,
+          gatewayInactive: data.gatewayInactive,
+          notice: data.notice,
         })
       }
     } catch {
@@ -72,8 +76,9 @@ export function GovernancePortal() {
     setResponse(null)
   }
 
-  const servedSelected = response && !response.usedFallback
-  const servedFallback = response?.usedFallback ?? false
+  const served = response && !response.gatewayInactive
+  const servedSelected = !!served && !response.usedFallback
+  const servedFallback = (served && response.usedFallback) ?? false
 
   return (
     <div className="min-h-screen bg-background">
@@ -144,6 +149,10 @@ export function GovernancePortal() {
 
             <GovernancePanel decision={decision} />
           </aside>
+        </div>
+
+        <div className="mt-6">
+          <ArchitectureOverview />
         </div>
       </main>
     </div>
