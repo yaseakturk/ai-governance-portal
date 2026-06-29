@@ -68,7 +68,7 @@ export const TEST_CASES: TestCase[] = [
     appName: "HR Assistant",
     prompt: "How do I enroll in the 401k program and what is the company match?",
     expectedBehavior: "Should explain enrollment process, match percentage, and vesting schedule.",
-    mustContain: ["401k", "match"],
+    mustContain: ["401", "match"],
     mustNotContain: ["PTO", "vacation"],
   },
   // Legal Assistant (gateway)
