@@ -206,12 +206,17 @@ export type GovernanceDecision = {
   policies: { label: string; status: "enforced" | "info"; detail: string }[]
 }
 
+// Maps task complexity to a cost tier label.
+// Used for display purposes in the Platform Operations dashboard —
+// does not affect model routing or enforce spending limits.
 const TIER_BY_COMPLEXITY: Record<TaskType["complexity"], CostTier> = {
   low: "economy",
   medium: "standard",
   high: "premium",
 }
 
+// Display metadata for cost tiers shown in the Platform Operations dashboard.
+// Provides human-readable labels and budget descriptions for governance details UI.
 export const COST_TIER_META: Record<
   CostTier,
   { label: string; budget: string; description: string }
