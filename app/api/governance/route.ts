@@ -49,7 +49,7 @@ export async function POST(req: Request) {
     // Mock Demo applications never call a model — output is generated locally.
     if (decision.executionMode === "mock") {
       const responseText = getMockResponse(appId, taskId, prompt)
-      const evaluation = runEvaluation(appId, prompt, responseText)
+      const evaluation = await runEvaluation(appId, prompt, responseText)
 
       return Response.json({
         text: responseText,
@@ -90,14 +90,49 @@ export async function POST(req: Request) {
     ].join("\n")
 
     let usedModelId = decision.selectedModelId
-    let usedFallback = false
     let text = ""
+
+    // Use AI Gateway's provider options for routing and restriction.
+    // - `order`: defines failover priority (primary provider first, fallback second)
+    // - `only`: restricts to governance-approved providers only
+    const primaryProvider = MODEL_REGISTRY[decision.selectedModelId].provider.toLowerCase()
+    const fallbackProvider = MODEL_REGISTRY[decision.fallbackModelId].provider.toLowerCase()
 
     try {
       const result = await generateText({
         model: decision.selectedModelId,
         system,
         prompt,
+        providerOptions: {
+          gateway: {
+            order: [primaryProvider, fallbackProvider],
+            only: app.allowedProviders.map((p) => p.toLowerCase()),
+            // Enforce data privacy based on sensitivity level.
+            // Restricted/confidential apps disable prompt training;
+            // restricted apps additionally enforce zero data retention.
+            ...(app.sensitivity !== "internal" && {
+              disallowPromptTraining: true,
+            }),
+            ...(app.sensitivity === "restricted" && {
+              zeroDataRetention: true,
+            }),
+            // ─── Usage Tracking (AI Gateway Native Reporting) ──────────────
+            // When active, the gateway tracks usage by user and custom tags
+            // in the Vercel dashboard — no external observability tool needed.
+            //
+            // user: session.user.id,
+            // tags: {
+            //   application: appId,
+            //   team: app.team,
+            //   costTier: decision.costTier,
+            //   sensitivity: app.sensitivity,
+            //   taskType: task.name,
+            // },
+          },
+        },
+        // ─── OpenTelemetry (for non-Vercel observability: Datadog, Grafana, Sentry) ──
+        // Emits OTel spans with custom metadata to your own monitoring stack.
+        // If using only Vercel's built-in dashboard, the gateway tags above suffice.
         experimental_telemetry: {
           isEnabled: true,
           functionId: `governance.${appId}`,
@@ -117,56 +152,28 @@ export async function POST(req: Request) {
       })
       text = result.text
     } catch {
-      // Governance policy: fail over to the approved fallback model.
-      try {
-        usedFallback = true
-        usedModelId = decision.fallbackModelId
-        const result = await generateText({
-          model: decision.fallbackModelId,
-          system,
-          prompt,
-          experimental_telemetry: {
-            isEnabled: true,
-            functionId: `governance.${appId}.fallback`,
-            metadata: {
-              requestId,
-              appId,
-              appName: app.name,
-              taskId,
-              taskName: task.name,
-              costTier: decision.costTier,
-              executionMode: "gateway",
-              modelRole: "fallback",
-              sensitivity: app.sensitivity,
-              region: app.region,
-              primaryModelFailed: decision.selectedModelId,
-            },
-          },
-        })
-        text = result.text
-      } catch {
-        // Both routes unavailable (e.g. no Gateway billing in this demo).
-        return Response.json({
-          executionMode: "gateway",
-          gatewayInactive: true,
-          notice: GATEWAY_NOTICE,
-          usedModelId: decision.selectedModelId,
-          usedModelName: selected.name,
-          usedFallback: false,
-          costTier: decision.costTier,
-          selectedModelName: selected.name,
-        })
-      }
+      // Gateway and primary provider unavailable (e.g. no billing in this demo).
+      // Return a professional notice so the governance flow can still be demonstrated.
+      return Response.json({
+        executionMode: "gateway",
+        gatewayInactive: true,
+        notice: GATEWAY_NOTICE,
+        usedModelId: decision.selectedModelId,
+        usedModelName: selected.name,
+        usedFallback: false,
+        costTier: decision.costTier,
+        selectedModelName: selected.name,
+      })
     }
 
-    const evaluation = runEvaluation(appId, prompt, text)
+    const evaluation = await runEvaluation(appId, prompt, text)
 
     return Response.json({
       text,
       executionMode: "gateway",
       usedModelId,
       usedModelName: MODEL_REGISTRY[usedModelId].name,
-      usedFallback,
+      usedFallback: false,
       costTier: decision.costTier,
       selectedModelName: selected.name,
       evaluation,
@@ -180,45 +187,55 @@ export async function POST(req: Request) {
 }
 
 // ─── Post-Response Evaluation ───────────────────────────────────────────────
-// Runs deterministic quality checks on every response.
-// When ENABLE_LLM_JUDGE=true is set and AI Gateway credentials are available,
-// also runs LLM-as-judge evaluation via the AI SDK for deeper quality scoring.
+// Runs quality checks on every response:
+// 1. Deterministic checks (always) — keyword matching, length, structure
+// 2. LLM-as-judge (when ENABLE_LLM_JUDGE=true) — AI SDK evaluates via gateway
 
-function runEvaluation(appId: string, prompt: string, response: string) {
+async function runEvaluation(appId: string, prompt: string, response: string) {
   // Find a matching test case for structured evaluation, or create an ad-hoc one
   const matchingTest = TEST_CASES.find(
     (tc) => tc.appId === appId && prompt.toLowerCase().includes(tc.prompt.slice(0, 30).toLowerCase()),
   )
 
-  if (matchingTest) {
-    const result = runDeterministicCheck(matchingTest, response)
-    return {
-      type: "deterministic" as const,
-      passed: result.passed,
-      checks: result.checks,
-      failures: result.failures,
+  // Layer 1: Deterministic checks (always runs, no credentials needed)
+  const deterministic = matchingTest
+    ? runDeterministicCheck(matchingTest, response)
+    : {
+        testId: "ad-hoc",
+        passed: response.trim().length >= 50,
+        checks: {
+          hasContent: response.trim().length > 0,
+          meetsMinLength: response.length >= 50,
+          containsRequired: true,
+          avoidsProhibited: true,
+          noEmptyResponse: true,
+        },
+        failures: response.trim().length >= 50 ? [] : ["Response too short or empty"],
+      }
+
+  // Layer 2: LLM-as-judge (requires ENABLE_LLM_JUDGE=true and AI Gateway credentials)
+  // Uses the AI SDK's generateObject() to score responses via the gateway.
+  let llmJudge = null
+  if (process.env.ENABLE_LLM_JUDGE === "true") {
+    try {
+      const { evaluateResponse } = await import("@/lib/evaluation")
+      llmJudge = await evaluateResponse({
+        prompt,
+        response,
+        expectedBehavior: matchingTest?.expectedBehavior ?? "Response should be relevant, accurate, and safe for enterprise use.",
+        judgeModel: "openai/gpt-4o-mini",
+      })
+    } catch {
+      // LLM judge unavailable — continue with deterministic results only
+      llmJudge = null
     }
   }
 
-  // Ad-hoc check for prompts not in the test set
-  const hasContent = response.trim().length > 0
-  const meetsMinLength = response.length >= 50
-  const passed = hasContent && meetsMinLength
-
   return {
-    type: "deterministic" as const,
-    passed,
-    checks: { hasContent, meetsMinLength, containsRequired: true, avoidsProhibited: true, noEmptyResponse: true },
-    failures: passed ? [] : ["Response too short or empty"],
+    type: llmJudge ? "full" as const : "deterministic" as const,
+    passed: deterministic.passed && (llmJudge ? !llmJudge.hallucination_detected && llmJudge.relevance >= 3 : true),
+    deterministic: deterministic.checks,
+    failures: deterministic.failures,
+    llmJudge,
   }
 }
-
-// Note: LLM-as-judge evaluation (using evaluateResponse from lib/evaluation.ts)
-// can be enabled in production by setting ENABLE_LLM_JUDGE=true.
-// It uses the AI SDK's generateObject() to have a model score responses on:
-// - Relevance (1-5)
-// - Accuracy (1-5)
-// - Completeness (1-5)
-// - Safety (1-5)
-// - Hallucination detection (boolean)
-// This requires active AI Gateway credentials.
