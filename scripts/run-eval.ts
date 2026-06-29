@@ -13,7 +13,7 @@ import {
 const USE_LLM_JUDGE = process.argv.includes("--llm-judge")
 const BASE_URL = process.env.BASE_URL ?? "http://localhost:3000"
 
-async function getResponse(appId: string, prompt: string): Promise<string> {
+async function getResponse(appId: string, prompt: string): Promise<{ text: string; gatewayInactive: boolean }> {
   // Determine appropriate task type for the app
   const taskMap: Record<string, string> = {
     "support-assistant": "summarization",
@@ -35,9 +35,9 @@ async function getResponse(appId: string, prompt: string): Promise<string> {
 
   const data = await res.json()
 
-  if (data.error) return ""
-  if (data.gatewayInactive) return data.notice ?? ""
-  return data.text ?? ""
+  if (data.error) return { text: "", gatewayInactive: false }
+  if (data.gatewayInactive) return { text: "", gatewayInactive: true }
+  return { text: data.text ?? "", gatewayInactive: false }
 }
 
 async function main() {
@@ -50,15 +50,22 @@ async function main() {
   const results: FullEvaluationResult[] = []
   let passed = 0
   let failed = 0
+  let skipped = 0
 
   for (const testCase of TEST_CASES) {
     process.stdout.write(`  [${testCase.id}] ${testCase.appName}... `)
 
     try {
-      const response = await getResponse(testCase.appId, testCase.prompt)
+      const { text: response, gatewayInactive } = await getResponse(testCase.appId, testCase.prompt)
+
+      if (gatewayInactive) {
+        console.log("⏭️  Skipped (gateway inactive — needs credentials)")
+        skipped++
+        continue
+      }
 
       if (!response) {
-        console.log("⚠️  No response (gateway inactive or error)")
+        console.log("⚠️  No response (error)")
         failed++
         continue
       }
@@ -89,7 +96,7 @@ async function main() {
 
   // Summary
   console.log("\n═══════════════════════════════════════════════════════════")
-  console.log(`  Results: ${passed} passed, ${failed} failed, ${TEST_CASES.length} total`)
+  console.log(`  Results: ${passed} passed, ${failed} failed, ${skipped} skipped, ${TEST_CASES.length} total`)
   console.log("═══════════════════════════════════════════════════════════")
 
   if (USE_LLM_JUDGE) {
