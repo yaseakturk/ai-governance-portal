@@ -108,55 +108,9 @@ The customer's core problems map directly to AI Gateway capabilities:
 |---------|---------------|
 | **Provider Abstraction** | All model calls use `generateText({ model: "provider/model" })` — one interface for OpenAI and Anthropic |
 | **Model Switching** | Changing `primaryModelId` in the governance config switches the model with zero code changes |
-| **Automatic Failover** | The API route catches primary model failures and retries with the configured fallback model |
-| **Multi-Provider Support** | Applications route to both OpenAI (GPT-4o, GPT-4o mini) and Anthropic (Claude Sonnet 4.5, Claude Haiku 4.5) |
-
-### Demonstrated Conceptually (Governance Layer)
-
-These features are implemented in our governance layer to show what they would look like in production:
-
-| Feature | Implementation |
-|---------|---------------|
-| **Cost Tracking** | Estimated per-request cost calculated from model pricing in the Platform Operations dashboard |
-| **Per-Application Observability** | Application usage, task classification, and provider distribution tracked client-side |
-| **Policy Enforcement** | PII redaction, data residency, model allowlist, cost guardrails — shown in governance details |
-| **Routing Decisions** | Model selection based on app sensitivity, task complexity, and cost tier — fully transparent |
-
-### Available in Production AI Gateway (Not in This Demo)
-
-These are built-in gateway features available when billing is active:
-
-| Feature | Description |
-|---------|-------------|
-| **Built-in Observability Dashboard** | Token usage, cost, latency, and error rates per request — provided natively by Vercel |
-| **Load Balancing** | Distribute requests across multiple provider accounts/regions for higher throughput |
-| **Rate Limit Management** | Gateway manages per-provider rate limits and queues requests automatically |
-| **Spend Controls** | Budget caps and alerts at the gateway level |
-| **Data Retention Policies** | Enforce how long request/response data is stored |
-| **Sub-20ms Latency Overhead** | Built on Vercel's CDN infrastructure (trillions of requests/year) |
-| **Zero Token Markup** | No added cost on top of provider pricing |
-| **Image & Video Generation** | Gateway supports models beyond text (DALL-E, etc.) |
-| **Embeddings & Web Search** | Additional modalities supported through the same interface |
-
----
-
-## How the Governance Decision Works
-
-The decision-making process is in `lib/governance.ts` → `getGovernanceDecision()`:
-
-1. **Application config** determines the primary and fallback model, allowed providers, and data sensitivity
-2. **Task complexity** (low/medium/high) maps to a cost tier (economy/standard/premium)
-3. **Data sensitivity** can upgrade the cost tier (restricted data → at least standard tier)
-4. **Policies** are assembled based on app config (PII redaction for confidential/restricted data, data residency, model allowlist, cost guardrails, automatic failover)
-
-The result is a `GovernanceDecision` object containing:
-- Which model to call
-- Which model to fail over to
-- What cost tier applies
-- Why this routing was chosen
-- What policies are enforced
-
-This decision is then executed in `app/api/governance/route.ts`, which calls the Vercel AI Gateway with the selected model and handles failover if the primary fails.
+| **Automatic Failover** | Gateway `order` option defines fallback priority — gateway handles provider failover automatically |
+| **Provider Restriction** | Gateway `only` option enforces governance-approved providers per application |
+| **Data Privacy Controls** | `disallowPromptTraining` for confidential apps, `zeroDataRetention` for restricted apps — enforced at gateway level based on sensitivity |
 
 ---
 
@@ -206,13 +160,6 @@ Scoring dimensions:
 - **Completeness** (1–5) — Is key information covered?
 - **Safety** (1–5) — Is the response appropriate for enterprise use?
 - **Hallucination detection** (boolean) — Did the model fabricate facts?
-
-### Where It's Called
-
-The evaluation runs in `app/api/governance/route.ts` after every response:
-- Mock responses are evaluated after `getMockResponse()` generates the text
-- Gateway responses are evaluated after the model returns
-- The evaluation result is included in the API response payload
 
 ### Running the Eval Suite
 
@@ -274,5 +221,4 @@ components/
   platform-operations-tab.tsx — Tab 2: Governance dashboard
 scripts/
   run-eval.ts                 — Evaluation runner (deterministic or full LLM-as-judge mode)
-  generate-presentation.mjs   — PowerPoint presentation generator
 ```
